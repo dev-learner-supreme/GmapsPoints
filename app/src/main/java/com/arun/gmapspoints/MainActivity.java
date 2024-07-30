@@ -25,6 +25,7 @@ import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
@@ -266,17 +267,25 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             mMap.clear();
             polygonPoints.clear();
 
+            LatLngBounds.Builder boundsBuilder = new LatLngBounds.Builder();
+
             for (int i = 0; i < pointsArray.length(); i++) {
                 JSONObject pointObject = pointsArray.getJSONObject(i);
                 double latitude = pointObject.getDouble("latitude");
                 double longitude = pointObject.getDouble("longitude");
                 LatLng point = new LatLng(latitude, longitude);
                 polygonPoints.add(point);
+                boundsBuilder.include(point); // Add each point to the bounds builder
                 // Add markers for each point
                 mMap.addMarker(new MarkerOptions().position(point));
             }
 
             updatePolygon();
+
+            // Get the bounds and update the camera to fit the bounds
+            LatLngBounds bounds = boundsBuilder.build();
+            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100)); // 100 is padding in pixels
+
         } catch (JSONException e) {
             Log.e(TAG, "Error parsing JSON data: " + e.getMessage());
             Toast.makeText(this, "Error parsing JSON data", Toast.LENGTH_SHORT).show();
