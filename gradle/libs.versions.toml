@@ -13,6 +13,7 @@ playServicesMaps = "19.0.0"
 playServicesLocation = "21.3.0"
 mapsUtils = "2.3.0"
 places = "19.0.0"
+compilercommon = "3.2.0-alpha11"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -28,6 +29,7 @@ play-services-maps = { module = "com.google.android.gms:play-services-maps", ver
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 maps-utils = { module = "com.google.maps.android:android-maps-utils", version.ref = "mapsUtils" }
 places = { module = "com.google.android.libraries.places:places-compat", version.ref = "places" }
+androidx-compilercommon = { group = "androidx.databinding", name = "compilerCommon", version.ref = "compilercommon" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
