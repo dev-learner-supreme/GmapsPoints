@@ -28,6 +28,7 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
+import com.google.maps.android.SphericalUtil;  // Import SphericalUtil
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -140,30 +141,21 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     .fillColor(0x30ff0000);
             polygon = mMap.addPolygon(polygonOptions);
             double area = calculatePolygonArea(polygonPoints);
-            areaTextView.setText(String.format(Locale.getDefault(), "Area: %.2f sq m", area));
+            double areaInHectares = area / 10000; // 1 hectare = 10,000 square meters
+            areaTextView.setText(String.format(Locale.getDefault(), "Area: %.2f sq m (%.2f ha)", area, areaInHectares));
             Toast.makeText(this, "Area updated", Toast.LENGTH_SHORT).show();
         } else {
-            areaTextView.setText("");
+            areaTextView.setText("Area: 0.0 sq m (0.0 ha)");
             Toast.makeText(this, "Add more points to calculate area", Toast.LENGTH_SHORT).show();
         }
     }
 
     private double calculatePolygonArea(List<LatLng> latLngs) {
-        double area = 0.0;
-        int numPoints = latLngs.size();
-        if (numPoints < 3) {
-            return area;
+        if (latLngs.size() < 3) {
+            return 0.0;
         }
-
-        for (int i = 0; i < numPoints; i++) {
-            LatLng p1 = latLngs.get(i);
-            LatLng p2 = latLngs.get((i + 1) % numPoints);
-
-            area += p1.longitude * p2.latitude;
-            area -= p2.longitude * p1.latitude;
-        }
-        area = Math.abs(area) / 2.0;
-        return area;
+        // Use SphericalUtil to calculate the area of the polygon
+        return SphericalUtil.computeArea(latLngs);
     }
 
     private void refreshMap() {
@@ -237,50 +229,77 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         intent.setType("application/json");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(intent, OPEN_FILE_REQUEST_CODE);
-        Toast.makeText(this, "Opening file", Toast.LENGTH_SHORT).show();
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == OPEN_FILE_REQUEST_CODE && resultCode == RESULT_OK) {
-            if (data != null) {
-                Uri uri = data.getData();
-                readJsonFromUri(uri);
-                Toast.makeText(this, "File selected", Toast.LENGTH_SHORT).show();
+        if (requestCode == OPEN_FILE_REQUEST_CODE && resultCode == RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri != null) {
+                try {
+                    InputStream inputStream = getContentResolver().openInputStream(uri);
+                    if (inputStream != null) {
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+                        StringBuilder builder = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            builder.append(line);
+                        }
+                        reader.close();
+                        parseJsonData(builder.toString());
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "Error reading JSON file: " + e.getMessage());
+                    Toast.makeText(this, "Error reading JSON file", Toast.LENGTH_SHORT).show();
+                }
             }
         }
     }
 
-    private void readJsonFromUri(Uri uri) {
-        try (InputStream inputStream = getContentResolver().openInputStream(uri);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
-            StringBuilder stringBuilder = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                stringBuilder.append(line);
+    private void parseJsonData(String jsonData) {
+        try {
+            JSONObject jsonObject = new JSONObject(jsonData);
+            JSONArray pointsArray = jsonObject.getJSONArray("points");
+
+            // Clear existing markers and polygon
+            mMap.clear();
+            polygonPoints.clear();
+
+            for (int i = 0; i < pointsArray.length(); i++) {
+                JSONObject pointObject = pointsArray.getJSONObject(i);
+                double latitude = pointObject.getDouble("latitude");
+                double longitude = pointObject.getDouble("longitude");
+                LatLng point = new LatLng(latitude, longitude);
+                polygonPoints.add(point);
+                // Add markers for each point
+                mMap.addMarker(new MarkerOptions().position(point));
             }
-            parseJsonData(stringBuilder.toString());
-        } catch (IOException | JSONException e) {
-            Log.e(TAG, "Error reading JSON file: " + e.getMessage());
-            Toast.makeText(this, "Error reading JSON file", Toast.LENGTH_SHORT).show();
+
+            updatePolygon();
+        } catch (JSONException e) {
+            Log.e(TAG, "Error parsing JSON data: " + e.getMessage());
+            Toast.makeText(this, "Error parsing JSON data", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private void parseJsonData(String jsonData) throws JSONException {
-        JSONObject jsonObject = new JSONObject(jsonData);
-        JSONArray pointsArray = jsonObject.getJSONArray("points");
-        polygonPoints.clear();
-        mMap.clear();
-        for (int i = 0; i < pointsArray.length(); i++) {
-            JSONObject pointObject = pointsArray.getJSONObject(i);
-            double latitude = pointObject.getDouble("latitude");
-            double longitude = pointObject.getDouble("longitude");
-            LatLng latLng = new LatLng(latitude, longitude);
-            polygonPoints.add(latLng);
-            mMap.addMarker(new MarkerOptions().position(latLng));
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                updateLocationUI();
+                getDeviceLocation();
+            } else {
+                Toast.makeText(this, "Location permission required", Toast.LENGTH_SHORT).show();
+            }
+        } else if (requestCode == STORAGE_PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                saveMarkers();
+            } else {
+                Toast.makeText(this, "Storage permission required", Toast.LENGTH_SHORT).show();
+            }
         }
-        updatePolygon();
-        Toast.makeText(this, "Markers loaded from JSON", Toast.LENGTH_SHORT).show();
     }
 }
