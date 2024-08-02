@@ -17,13 +17,16 @@
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyC2UGW-Fszpq9WnNhyMo7jHPMjeqqrbc8k" />
 
-        <activity android:name=".MainActivity"
+        <activity android:name=".SignInActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity android:name=".MainActivity"
+            android:exported="true" />
 
     </application>
 

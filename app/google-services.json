@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "974715128520",
+    "project_id": "mappointsjson",
+    "storage_bucket": "mappointsjson.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:974715128520:android:42637fc4c9f0acbd5e73fd",
+        "android_client_info": {
+          "package_name": "com.arun.gmapspoints"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVWrZKQPY5uK7MZw92NV-HyM5uxWV0dE0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:974715128520:android:eef19a7286ef49585e73fd",
+        "android_client_info": {
+          "package_name": "com.example.firebase_storage"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVWrZKQPY5uK7MZw92NV-HyM5uxWV0dE0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -5,19 +5,18 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Location;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.util.Log;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
@@ -30,59 +29,66 @@ import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
 import com.google.maps.android.SphericalUtil;  // Import SphericalUtil
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import android.app.AlertDialog;
+import android.widget.ArrayAdapter;
+import android.widget.ListView;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
 
 public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
 
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private static final int STORAGE_PERMISSION_REQUEST_CODE = 2;
-    private static final int OPEN_FILE_REQUEST_CODE = 3;
+    private static final String TAG = "MainActivity";
+
     private GoogleMap mMap;
     private FusedLocationProviderClient fusedLocationClient;
     private List<LatLng> polygonPoints = new ArrayList<>();
     private Polygon polygon;
     private TextView areaTextView;
-    private static final String TAG = "MainActivity";
+    private FirebaseStorage firebaseStorage;
+    private StorageReference storageReference;
+    private FirebaseAuth mAuth;
+    private FirebaseUser currentUser;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mAuth = FirebaseAuth.getInstance();
+        currentUser = mAuth.getCurrentUser();
+
+        if (currentUser == null) {
+            // User is not signed in, redirect to SignInActivity
+            Intent signInIntent = new Intent(MainActivity.this, SignInActivity.class);
+            startActivity(signInIntent);
+            finish(); // Close the MainActivity so user cannot return to it without signing in
+            return;
+        }
         setContentView(R.layout.activity_main);
 
         areaTextView = findViewById(R.id.tv_area);
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        firebaseStorage = FirebaseStorage.getInstance();
+        storageReference = firebaseStorage.getReference().child("json");
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map_container);
         mapFragment.getMapAsync(this);
 
-        findViewById(R.id.fab_open_directory).setOnClickListener(view -> openFile());
+        findViewById(R.id.fab_open_directory).setOnClickListener(view -> openFileList());
 
         findViewById(R.id.fab_refresh).setOnClickListener(view -> refreshMap());
 
-        findViewById(R.id.fab_save).setOnClickListener(view -> {
-            if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(MainActivity.this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                        STORAGE_PERMISSION_REQUEST_CODE);
-            } else {
-                saveMarkers();
-            }
-        });
+        findViewById(R.id.fab_save).setOnClickListener(view -> getNextFileNumber());
     }
 
     @Override
@@ -166,7 +172,40 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         Toast.makeText(this, "Map refreshed", Toast.LENGTH_SHORT).show();
     }
 
-    private void saveMarkers() {
+    private void getNextFileNumber() {
+        final int[] maxFileNumber = {0}; // Array to hold the maximum file number
+
+        // List all files in the "json" folder
+        storageReference.listAll().addOnSuccessListener(listResult -> {
+            List<String> fileNames = new ArrayList<>();
+            for (StorageReference item : listResult.getItems()) {
+                fileNames.add(item.getName());
+            }
+
+            // Determine the highest number in the file names
+            for (String fileName : fileNames) {
+                if (fileName.matches("farm(\\d+)\\.json")) {
+                    int number = Integer.parseInt(fileName.replaceAll("farm(\\d+)\\.json", "$1"));
+                    if (number >= maxFileNumber[0]) {
+                        maxFileNumber[0] = number + 1;
+                    }
+                }
+            }
+
+            // If no files exist, start with 1
+            if (maxFileNumber[0] == 0) {
+                maxFileNumber[0] = 1;
+            }
+
+            // Proceed to save the markers with the new file number
+            saveMarkers(maxFileNumber[0]);
+        }).addOnFailureListener(e -> {
+            Log.e(TAG, "Error listing files from Firebase Storage: " + e.getMessage());
+            Toast.makeText(this, "Error listing files from Firebase Storage", Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private void saveMarkers(int fileNumber) {
         JSONArray jsonArray = new JSONArray();
         for (int i = 0; i < polygonPoints.size(); i++) {
             LatLng point = polygonPoints.get(i);
@@ -189,73 +228,64 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             Toast.makeText(this, "Error creating final JSON", Toast.LENGTH_SHORT).show();
         }
 
-        // Save to the app's specific external storage directory
-        File dir = getExternalFilesDir(null); // Gets the directory /storage/emulated/0/Android/data/com.arun.gmapspoints/files/
-        String fileName = "farm" + getNextFileNumber() + ".json";
-        File file = new File(dir, fileName);
-        try (FileWriter fileWriter = new FileWriter(file)) {
-            fileWriter.write(finalJson.toString());
-            Toast.makeText(this, "Data saved to " + file.getAbsolutePath(), Toast.LENGTH_SHORT).show();
-        } catch (IOException e) {
-            Log.e(TAG, "Error saving JSON file: " + e.getMessage());
-            Toast.makeText(this, "Error saving JSON file", Toast.LENGTH_SHORT).show();
-        }
+        // Upload to Firebase Storage
+        String fileName = "farm" + fileNumber + ".json";
+        StorageReference fileRef = storageReference.child(fileName);
+        byte[] data = finalJson.toString().getBytes();
+        UploadTask uploadTask = fileRef.putBytes(data);
+        uploadTask.addOnSuccessListener(taskSnapshot -> {
+            Toast.makeText(this, "Data saved to Firebase Storage", Toast.LENGTH_SHORT).show();
+        }).addOnFailureListener(e -> {
+            Log.e(TAG, "Error saving JSON file to Firebase Storage: " + e.getMessage());
+            Toast.makeText(this, "Error saving JSON file to Firebase Storage", Toast.LENGTH_SHORT).show();
+        });
     }
 
-    private int getNextFileNumber() {
-        File dir = getExternalFilesDir(null); // Gets the directory /storage/emulated/0/Android/data/com.arun.gmapspoints/files/
-        if (dir.exists() && dir.isDirectory()) {
-            File[] files = dir.listFiles();
-            if (files != null) {
-                int maxNumber = 0;
-                for (File file : files) {
-                    String name = file.getName();
-                    if (name.startsWith("farm") && name.endsWith(".json")) {
-                        try {
-                            int number = Integer.parseInt(name.replace("farm", "").replace(".json", ""));
-                            maxNumber = Math.max(maxNumber, number);
-                        } catch (NumberFormatException e) {
-                            Log.e(TAG, "Error parsing file number: " + e.getMessage());
-                        }
-                    }
-                }
-                return maxNumber + 1;
+    private void openFileList() {
+        storageReference.listAll().addOnSuccessListener(listResult -> {
+            List<String> fileNames = new ArrayList<>();
+            for (StorageReference item : listResult.getItems()) {
+                fileNames.add(item.getName());
             }
-        }
-        return 1;
+
+            // Show file list in a dialog
+            showFileListDialog(fileNames);
+        }).addOnFailureListener(e -> {
+            Log.e(TAG, "Error listing files from Firebase Storage: " + e.getMessage());
+            Toast.makeText(this, "Error listing files from Firebase Storage", Toast.LENGTH_SHORT).show();
+        });
     }
 
-    private void openFile() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.setType("application/json");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(intent, OPEN_FILE_REQUEST_CODE);
+    private void showFileListDialog(List<String> fileNames) {
+        // Create a dialog with a ListView to show files
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Select a file");
+
+        ListView listView = new ListView(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, fileNames);
+        listView.setAdapter(adapter);
+
+        builder.setView(listView);
+        AlertDialog dialog = builder.create();
+
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            String selectedFileName = fileNames.get(position);
+            downloadFile(selectedFileName);
+            dialog.dismiss();
+        });
+
+        dialog.show();
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == OPEN_FILE_REQUEST_CODE && resultCode == RESULT_OK && data != null) {
-            Uri uri = data.getData();
-            if (uri != null) {
-                try {
-                    InputStream inputStream = getContentResolver().openInputStream(uri);
-                    if (inputStream != null) {
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-                        StringBuilder builder = new StringBuilder();
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            builder.append(line);
-                        }
-                        reader.close();
-                        parseJsonData(builder.toString());
-                    }
-                } catch (IOException e) {
-                    Log.e(TAG, "Error reading JSON file: " + e.getMessage());
-                    Toast.makeText(this, "Error reading JSON file", Toast.LENGTH_SHORT).show();
-                }
-            }
-        }
+    private void downloadFile(String fileName) {
+        StorageReference fileRef = storageReference.child(fileName);
+        fileRef.getBytes(Long.MAX_VALUE).addOnSuccessListener(bytes -> {
+            String jsonData = new String(bytes);
+            parseJsonData(jsonData);
+        }).addOnFailureListener(e -> {
+            Log.e(TAG, "Error downloading file from Firebase Storage: " + e.getMessage());
+            Toast.makeText(this, "Error downloading file from Firebase Storage", Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void parseJsonData(String jsonData) {
@@ -292,7 +322,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
     }
 
-
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -305,7 +334,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             }
         } else if (requestCode == STORAGE_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                saveMarkers();
+                // Handle storage permissions if needed
             } else {
                 Toast.makeText(this, "Storage permission required", Toast.LENGTH_SHORT).show();
             }
