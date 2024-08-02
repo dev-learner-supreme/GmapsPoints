@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "974715128520",
-    "project_id": "mappointsjson",
-    "storage_bucket": "mappointsjson.appspot.com"
+    "project_number": "969000227472",
+    "project_id": "db-firestore-dd4fd",
+    "storage_bucket": "db-firestore-dd4fd.appspot.com"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:974715128520:android:42637fc4c9f0acbd5e73fd",
+        "mobilesdk_app_id": "1:969000227472:android:ebfd9f74f8c9fbeeaf3e15",
         "android_client_info": {
           "package_name": "com.arun.gmapspoints"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAVWrZKQPY5uK7MZw92NV-HyM5uxWV0dE0"
+          "current_key": "AIzaSyD625ykH4QzAgHO10bVdz4g7Ed4tvS5bsk"
         }
       ],
       "services": {
@@ -26,15 +26,15 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:974715128520:android:eef19a7286ef49585e73fd",
+        "mobilesdk_app_id": "1:969000227472:android:0bda51335698fc5baf3e15",
         "android_client_info": {
-          "package_name": "com.example.firebase_storage"
+          "package_name": "com.example.firestore_db"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAVWrZKQPY5uK7MZw92NV-HyM5uxWV0dE0"
+          "current_key": "AIzaSyD625ykH4QzAgHO10bVdz4g7Ed4tvS5bsk"
         }
       ],
       "services": {

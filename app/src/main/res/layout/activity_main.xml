@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <fragment
+    <androidx.fragment.app.FragmentContainerView
         android:id="@+id/map_container"
         android:name="com.google.android.gms.maps.SupportMapFragment"
         android:layout_width="match_parent"
@@ -21,7 +21,7 @@
         android:layout_alignParentBottom="true"
         android:layout_alignParentStart="true"
         android:layout_margin="16dp"
-        android:text="Area: 0.0 sq m"
+        android:text="@string/area"
         android:textSize="16sp"
         android:textColor="@android:color/black"
         android:background="@drawable/rounded_rectangle"/>
@@ -41,20 +41,23 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            app:srcCompat="@drawable/ic_folder" />
+            app:srcCompat="@drawable/ic_folder"
+            android:contentDescription="@string/open_dir" />
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_refresh"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            app:srcCompat="@drawable/ic_refresh" />
+            app:srcCompat="@drawable/ic_refresh"
+            android:contentDescription="@string/refresh" />
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/fab_save"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            app:srcCompat="@drawable/ic_save" />
+            app:srcCompat="@drawable/ic_save"
+            android:contentDescription="@string/save" />
 
     </LinearLayout>
 

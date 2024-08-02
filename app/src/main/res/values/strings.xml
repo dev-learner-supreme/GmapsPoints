@@ -9,6 +9,10 @@
     <string name="Password">Password</string>
     <string name="Email">Email</string>
     <string name="Sign_In">Sign In</string>
+    <string name="open_dir">Open Directory</string>
+    <string name="refresh">Refresh</string>
+    <string name="save">Save</string>
+    <string name="area">Area: 0.0 sq m</string>
 
     <string name="lorem_ipsum">
         Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam in scelerisque sem. Mauris

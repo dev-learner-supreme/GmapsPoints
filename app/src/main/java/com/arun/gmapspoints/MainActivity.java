@@ -13,10 +13,12 @@ import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
@@ -28,37 +30,34 @@ import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
-import com.google.maps.android.SphericalUtil;  // Import SphericalUtil
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import android.app.AlertDialog;
-import android.widget.ArrayAdapter;
-import android.widget.ListView;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
-import com.google.firebase.storage.UploadTask;
+import com.google.firebase.firestore.CollectionReference;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestore;
+
+import com.google.maps.android.SphericalUtil;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
 
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
-    private static final int STORAGE_PERMISSION_REQUEST_CODE = 2;
     private static final String TAG = "MainActivity";
+    private static final String COLLECTION_NAME = "markerData";
 
     private GoogleMap mMap;
     private FusedLocationProviderClient fusedLocationClient;
     private List<LatLng> polygonPoints = new ArrayList<>();
     private Polygon polygon;
     private TextView areaTextView;
-    private FirebaseStorage firebaseStorage;
-    private StorageReference storageReference;
     private FirebaseAuth mAuth;
     private FirebaseUser currentUser;
+    private FirebaseFirestore db;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,18 +76,15 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
         areaTextView = findViewById(R.id.tv_area);
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-        firebaseStorage = FirebaseStorage.getInstance();
-        storageReference = firebaseStorage.getReference().child("json");
+        db = FirebaseFirestore.getInstance();
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map_container);
         mapFragment.getMapAsync(this);
 
         findViewById(R.id.fab_open_directory).setOnClickListener(view -> openFileList());
-
         findViewById(R.id.fab_refresh).setOnClickListener(view -> refreshMap());
-
-        findViewById(R.id.fab_save).setOnClickListener(view -> getNextFileNumber());
+        findViewById(R.id.fab_save).setOnClickListener(view -> saveMarkersToFirestore());
     }
 
     @Override
@@ -161,7 +157,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         if (latLngs.size() < 3) {
             return 0.0;
         }
-        // Use SphericalUtil to calculate the area of the polygon
         return SphericalUtil.computeArea(latLngs);
     }
 
@@ -172,153 +167,130 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         Toast.makeText(this, "Map refreshed", Toast.LENGTH_SHORT).show();
     }
 
-    private void getNextFileNumber() {
-        final int[] maxFileNumber = {0}; // Array to hold the maximum file number
+    private void saveMarkersToFirestore() {
+        CollectionReference markerDataRef = db.collection(COLLECTION_NAME);
+        markerDataRef.get().addOnCompleteListener(task -> {
+            if (task.isSuccessful()) {
+                int fileCount = task.getResult().size();
+                String documentId = "farm" + (fileCount + 1);
+                Map<String, Object> markerData = new HashMap<>();
+                List<Map<String, Object>> points = new ArrayList<>();
 
-        // List all files in the "json" folder
-        storageReference.listAll().addOnSuccessListener(listResult -> {
-            List<String> fileNames = new ArrayList<>();
-            for (StorageReference item : listResult.getItems()) {
-                fileNames.add(item.getName());
-            }
-
-            // Determine the highest number in the file names
-            for (String fileName : fileNames) {
-                if (fileName.matches("farm(\\d+)\\.json")) {
-                    int number = Integer.parseInt(fileName.replaceAll("farm(\\d+)\\.json", "$1"));
-                    if (number >= maxFileNumber[0]) {
-                        maxFileNumber[0] = number + 1;
-                    }
+                for (LatLng point : polygonPoints) {
+                    Map<String, Object> pointData = new HashMap<>();
+                    pointData.put("latitude", point.latitude);
+                    pointData.put("longitude", point.longitude);
+                    points.add(pointData);
                 }
+
+                markerData.put("points", points);
+
+                markerDataRef.document(documentId)
+                        .set(markerData)
+                        .addOnSuccessListener(aVoid -> {
+                            Toast.makeText(MainActivity.this, "Markers saved to Firestore", Toast.LENGTH_SHORT).show();
+                        })
+                        .addOnFailureListener(e -> {
+                            Log.e(TAG, "Error saving markers to Firestore: " + e.getMessage());
+                            Toast.makeText(MainActivity.this, "Error saving markers to Firestore", Toast.LENGTH_SHORT).show();
+                        });
+            } else {
+                Log.e(TAG, "Error getting documents: " + task.getException());
+                Toast.makeText(MainActivity.this, "Error getting documents from Firestore", Toast.LENGTH_SHORT).show();
             }
-
-            // If no files exist, start with 1
-            if (maxFileNumber[0] == 0) {
-                maxFileNumber[0] = 1;
-            }
-
-            // Proceed to save the markers with the new file number
-            saveMarkers(maxFileNumber[0]);
-        }).addOnFailureListener(e -> {
-            Log.e(TAG, "Error listing files from Firebase Storage: " + e.getMessage());
-            Toast.makeText(this, "Error listing files from Firebase Storage", Toast.LENGTH_SHORT).show();
-        });
-    }
-
-    private void saveMarkers(int fileNumber) {
-        JSONArray jsonArray = new JSONArray();
-        for (int i = 0; i < polygonPoints.size(); i++) {
-            LatLng point = polygonPoints.get(i);
-            JSONObject jsonObject = new JSONObject();
-            try {
-                jsonObject.put("point_number", i + 1);
-                jsonObject.put("latitude", point.latitude);
-                jsonObject.put("longitude", point.longitude);
-                jsonArray.put(jsonObject);
-            } catch (JSONException e) {
-                Log.e(TAG, "Error adding point to JSON: " + e.getMessage());
-                Toast.makeText(this, "Error adding point to JSON", Toast.LENGTH_SHORT).show();
-            }
-        }
-        JSONObject finalJson = new JSONObject();
-        try {
-            finalJson.put("points", jsonArray);
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating final JSON: " + e.getMessage());
-            Toast.makeText(this, "Error creating final JSON", Toast.LENGTH_SHORT).show();
-        }
-
-        // Upload to Firebase Storage
-        String fileName = "farm" + fileNumber + ".json";
-        StorageReference fileRef = storageReference.child(fileName);
-        byte[] data = finalJson.toString().getBytes();
-        UploadTask uploadTask = fileRef.putBytes(data);
-        uploadTask.addOnSuccessListener(taskSnapshot -> {
-            Toast.makeText(this, "Data saved to Firebase Storage", Toast.LENGTH_SHORT).show();
-        }).addOnFailureListener(e -> {
-            Log.e(TAG, "Error saving JSON file to Firebase Storage: " + e.getMessage());
-            Toast.makeText(this, "Error saving JSON file to Firebase Storage", Toast.LENGTH_SHORT).show();
         });
     }
 
     private void openFileList() {
-        storageReference.listAll().addOnSuccessListener(listResult -> {
-            List<String> fileNames = new ArrayList<>();
-            for (StorageReference item : listResult.getItems()) {
-                fileNames.add(item.getName());
-            }
-
-            // Show file list in a dialog
-            showFileListDialog(fileNames);
-        }).addOnFailureListener(e -> {
-            Log.e(TAG, "Error listing files from Firebase Storage: " + e.getMessage());
-            Toast.makeText(this, "Error listing files from Firebase Storage", Toast.LENGTH_SHORT).show();
-        });
+        db.collection(COLLECTION_NAME)
+                .get()
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful()) {
+                        List<String> documentIds = new ArrayList<>();
+                        for (DocumentSnapshot document : task.getResult()) {
+                            documentIds.add(document.getId());
+                        }
+                        showFileListDialog(documentIds);
+                    } else {
+                        Log.e(TAG, "Error getting documents: " + task.getException());
+                        Toast.makeText(this, "Error getting documents from Firestore", Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
-    private void showFileListDialog(List<String> fileNames) {
-        // Create a dialog with a ListView to show files
+    private void showFileListDialog(List<String> documentIds) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Select a file");
 
         ListView listView = new ListView(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, fileNames);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, documentIds);
         listView.setAdapter(adapter);
 
         builder.setView(listView);
         AlertDialog dialog = builder.create();
 
         listView.setOnItemClickListener((parent, view, position, id) -> {
-            String selectedFileName = fileNames.get(position);
-            downloadFile(selectedFileName);
+            String selectedDocumentId = documentIds.get(position);
+            loadMarkersFromFirestore(selectedDocumentId);
             dialog.dismiss();
         });
 
         dialog.show();
     }
 
-    private void downloadFile(String fileName) {
-        StorageReference fileRef = storageReference.child(fileName);
-        fileRef.getBytes(Long.MAX_VALUE).addOnSuccessListener(bytes -> {
-            String jsonData = new String(bytes);
-            parseJsonData(jsonData);
-        }).addOnFailureListener(e -> {
-            Log.e(TAG, "Error downloading file from Firebase Storage: " + e.getMessage());
-            Toast.makeText(this, "Error downloading file from Firebase Storage", Toast.LENGTH_SHORT).show();
-        });
+    private void loadMarkersFromFirestore(String documentId) {
+        db.collection(COLLECTION_NAME).document(documentId)
+                .get()
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful()) {
+                        DocumentSnapshot document = task.getResult();
+                        if (document.exists()) {
+                            List<LatLng> points = new ArrayList<>();
+                            List<Map<String, Object>> pointsData = (List<Map<String, Object>>) document.get("points");
+                            if (pointsData != null) {
+                                for (Map<String, Object> pointData : pointsData) {
+                                    Double latitude = (Double) pointData.get("latitude");
+                                    Double longitude = (Double) pointData.get("longitude");
+                                    if (latitude != null && longitude != null) {
+                                        points.add(new LatLng(latitude, longitude));
+                                    } else {
+                                        Log.e(TAG, "Invalid latitude or longitude in document");
+                                    }
+                                }
+                                repopulateMap(points);
+                            } else {
+                                Log.e(TAG, "Points data is null in document");
+                                Toast.makeText(this, "No markers data in document", Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Log.e(TAG, "No such document");
+                            Toast.makeText(this, "No such document", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        Log.e(TAG, "Error getting document: ", task.getException());
+                        Toast.makeText(this, "Error loading markers from Firestore", Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
-    private void parseJsonData(String jsonData) {
-        try {
-            JSONObject jsonObject = new JSONObject(jsonData);
-            JSONArray pointsArray = jsonObject.getJSONArray("points");
+    private void repopulateMap(List<LatLng> points) {
+        mMap.clear();
+        polygonPoints.clear();
 
-            // Clear existing markers and polygon
-            mMap.clear();
-            polygonPoints.clear();
-
-            LatLngBounds.Builder boundsBuilder = new LatLngBounds.Builder();
-
-            for (int i = 0; i < pointsArray.length(); i++) {
-                JSONObject pointObject = pointsArray.getJSONObject(i);
-                double latitude = pointObject.getDouble("latitude");
-                double longitude = pointObject.getDouble("longitude");
-                LatLng point = new LatLng(latitude, longitude);
-                polygonPoints.add(point);
-                boundsBuilder.include(point); // Add each point to the bounds builder
-                // Add markers for each point
+        if (points != null && !points.isEmpty()) {
+            for (LatLng point : points) {
                 mMap.addMarker(new MarkerOptions().position(point));
+                polygonPoints.add(point);
             }
-
             updatePolygon();
-
-            // Get the bounds and update the camera to fit the bounds
-            LatLngBounds bounds = boundsBuilder.build();
-            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100)); // 100 is padding in pixels
-
-        } catch (JSONException e) {
-            Log.e(TAG, "Error parsing JSON data: " + e.getMessage());
-            Toast.makeText(this, "Error parsing JSON data", Toast.LENGTH_SHORT).show();
+            LatLngBounds.Builder builder = new LatLngBounds.Builder();
+            for (LatLng point : polygonPoints) {
+                builder.include(point);
+            }
+            LatLngBounds bounds = builder.build();
+            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100));
+        } else {
+            Toast.makeText(this, "No markers to display", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -330,13 +302,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 updateLocationUI();
                 getDeviceLocation();
             } else {
-                Toast.makeText(this, "Location permission required", Toast.LENGTH_SHORT).show();
-            }
-        } else if (requestCode == STORAGE_PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Handle storage permissions if needed
-            } else {
-                Toast.makeText(this, "Storage permission required", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show();
             }
         }
     }
