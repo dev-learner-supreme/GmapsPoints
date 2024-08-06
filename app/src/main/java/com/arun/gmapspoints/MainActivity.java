@@ -8,7 +8,6 @@ import android.location.Location;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -48,7 +47,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private static final String TAG = "MainActivity";
-    private static final String COLLECTION_NAME = "markerData";
 
     private GoogleMap mMap;
     private FusedLocationProviderClient fusedLocationClient;
@@ -168,7 +166,19 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     }
 
     private void saveMarkersToFirestore() {
-        CollectionReference markerDataRef = db.collection(COLLECTION_NAME);
+        if (currentUser == null) {
+            Toast.makeText(MainActivity.this, "User not authenticated", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String username = getUsernameFromEmail(currentUser.getEmail()); // Extract username
+        if (username == null || username.isEmpty()) {
+            Toast.makeText(MainActivity.this, "Username extraction failed", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        CollectionReference markerDataRef = db.collection("users").document(username).collection("farms");
+
         markerDataRef.get().addOnCompleteListener(task -> {
             if (task.isSuccessful()) {
                 int fileCount = task.getResult().size();
@@ -191,18 +201,24 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                             Toast.makeText(MainActivity.this, "Markers saved to Firestore", Toast.LENGTH_SHORT).show();
                         })
                         .addOnFailureListener(e -> {
-                            Log.e(TAG, "Error saving markers to Firestore: " + e.getMessage());
-                            Toast.makeText(MainActivity.this, "Error saving markers to Firestore", Toast.LENGTH_SHORT).show();
+                            Log.e(TAG, "Error saving markers to Firestore: " + e.getMessage(), e);
+                            Toast.makeText(MainActivity.this, "Error saving markers to Firestore: " + e.getMessage(), Toast.LENGTH_LONG).show();
                         });
             } else {
-                Log.e(TAG, "Error getting documents: " + task.getException());
-                Toast.makeText(MainActivity.this, "Error getting documents from Firestore", Toast.LENGTH_SHORT).show();
+                Log.e(TAG, "Error getting documents: " + task.getException(), task.getException());
+                Toast.makeText(MainActivity.this, "Error getting documents from Firestore: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
             }
         });
     }
 
     private void openFileList() {
-        db.collection(COLLECTION_NAME)
+        String username = getUsernameFromEmail(currentUser.getEmail()); // Extract username
+        if (username == null || username.isEmpty()) {
+            Toast.makeText(this, "Username extraction failed", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        db.collection("users").document(username).collection("farms")
                 .get()
                 .addOnCompleteListener(task -> {
                     if (task.isSuccessful()) {
@@ -210,89 +226,77 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                         for (DocumentSnapshot document : task.getResult()) {
                             documentIds.add(document.getId());
                         }
-                        showFileListDialog(documentIds);
+                        if (documentIds.isEmpty()) {
+                            Toast.makeText(this, "No farms found", Toast.LENGTH_SHORT).show();
+                        } else {
+                            showFileListDialog(documentIds);
+                        }
                     } else {
-                        Log.e(TAG, "Error getting documents: " + task.getException());
+                        Log.e(TAG, "Error getting documents: " + task.getException(), task.getException());
                         Toast.makeText(this, "Error getting documents from Firestore", Toast.LENGTH_SHORT).show();
                     }
                 });
     }
 
     private void showFileListDialog(List<String> documentIds) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Select a file");
-
-        ListView listView = new ListView(this);
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, documentIds);
+        ListView listView = new ListView(this);
         listView.setAdapter(adapter);
-
-        builder.setView(listView);
-        AlertDialog dialog = builder.create();
-
         listView.setOnItemClickListener((parent, view, position, id) -> {
-            String selectedDocumentId = documentIds.get(position);
-            loadMarkersFromFirestore(selectedDocumentId);
-            dialog.dismiss();
+            String selectedFileId = documentIds.get(position);
+            loadMarkersFromFirestore(selectedFileId);
         });
 
-        dialog.show();
+        new AlertDialog.Builder(this)
+                .setTitle("Select a Farm")
+                .setView(listView)
+                .setPositiveButton("Cancel", null)
+                .show();
     }
 
     private void loadMarkersFromFirestore(String documentId) {
-        db.collection(COLLECTION_NAME).document(documentId)
+        String username = getUsernameFromEmail(currentUser.getEmail()); // Extract username
+        if (username == null || username.isEmpty()) {
+            Toast.makeText(this, "Username extraction failed", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        db.collection("users").document(username).collection("farms").document(documentId)
                 .get()
                 .addOnCompleteListener(task -> {
                     if (task.isSuccessful()) {
                         DocumentSnapshot document = task.getResult();
                         if (document.exists()) {
-                            List<LatLng> points = new ArrayList<>();
-                            List<Map<String, Object>> pointsData = (List<Map<String, Object>>) document.get("points");
-                            if (pointsData != null) {
-                                for (Map<String, Object> pointData : pointsData) {
-                                    Double latitude = (Double) pointData.get("latitude");
-                                    Double longitude = (Double) pointData.get("longitude");
-                                    if (latitude != null && longitude != null) {
-                                        points.add(new LatLng(latitude, longitude));
-                                    } else {
-                                        Log.e(TAG, "Invalid latitude or longitude in document");
-                                    }
+                            List<Map<String, Object>> points = (List<Map<String, Object>>) document.get("points");
+                            polygonPoints.clear();
+                            mMap.clear();
+                            if (points != null) {
+                                for (Map<String, Object> pointData : points) {
+                                    double lat = (double) pointData.get("latitude");
+                                    double lng = (double) pointData.get("longitude");
+                                    LatLng latLng = new LatLng(lat, lng);
+                                    polygonPoints.add(latLng);
+                                    mMap.addMarker(new MarkerOptions().position(latLng));
                                 }
-                                repopulateMap(points);
-                            } else {
-                                Log.e(TAG, "Points data is null in document");
-                                Toast.makeText(this, "No markers data in document", Toast.LENGTH_SHORT).show();
+                                updatePolygon();
                             }
                         } else {
-                            Log.e(TAG, "No such document");
                             Toast.makeText(this, "No such document", Toast.LENGTH_SHORT).show();
                         }
                     } else {
-                        Log.e(TAG, "Error getting document: ", task.getException());
-                        Toast.makeText(this, "Error loading markers from Firestore", Toast.LENGTH_SHORT).show();
+                        Log.e(TAG, "Error getting document: " + task.getException(), task.getException());
+                        Toast.makeText(this, "Error getting document from Firestore", Toast.LENGTH_SHORT).show();
                     }
                 });
     }
 
-    private void repopulateMap(List<LatLng> points) {
-        mMap.clear();
-        polygonPoints.clear();
-
-        if (points != null && !points.isEmpty()) {
-            for (LatLng point : points) {
-                mMap.addMarker(new MarkerOptions().position(point));
-                polygonPoints.add(point);
-            }
-            updatePolygon();
-            LatLngBounds.Builder builder = new LatLngBounds.Builder();
-            for (LatLng point : polygonPoints) {
-                builder.include(point);
-            }
-            LatLngBounds bounds = builder.build();
-            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100));
-        } else {
-            Toast.makeText(this, "No markers to display", Toast.LENGTH_SHORT).show();
+    private String getUsernameFromEmail(String email) {
+        if (email != null && email.contains("@")) {
+            return email.substring(0, email.indexOf("@"));
         }
+        return null;
     }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -302,7 +306,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 updateLocationUI();
                 getDeviceLocation();
             } else {
-                Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show();
             }
         }
     }

@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.arun.gmapspoints" />
+                  <option name="mobileSdkAppId" value="1:969000227472:android:ebfd9f74f8c9fbeeaf3e15" />
+                  <option name="projectId" value="db-firestore-dd4fd" />
+                  <option name="projectNumber" value="969000227472" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
