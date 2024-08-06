@@ -141,9 +141,16 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     .strokeColor(Color.BLACK)
                     .fillColor(0x30ff0000);
             polygon = mMap.addPolygon(polygonOptions);
+
+            // Add markers to each point
+            for (LatLng point : polygonPoints) {
+                mMap.addMarker(new MarkerOptions().position(point));
+            }
+
             double area = calculatePolygonArea(polygonPoints);
             double areaInHectares = area / 10000; // 1 hectare = 10,000 square meters
             areaTextView.setText(String.format(Locale.getDefault(), "Area: %.2f sq m (%.2f ha)", area, areaInHectares));
+            zoomToPolygon(); // Call zoomToPolygon after updating the polygon
             Toast.makeText(this, "Area updated", Toast.LENGTH_SHORT).show();
         } else {
             areaTextView.setText("Area: 0.0 sq m (0.0 ha)");
@@ -151,11 +158,24 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
     }
 
+
     private double calculatePolygonArea(List<LatLng> latLngs) {
         if (latLngs.size() < 3) {
             return 0.0;
         }
         return SphericalUtil.computeArea(latLngs);
+    }
+
+    private void zoomToPolygon() {
+        if (polygonPoints.size() < 1) {
+            return;
+        }
+        LatLngBounds.Builder builder = new LatLngBounds.Builder();
+        for (LatLng point : polygonPoints) {
+            builder.include(point);
+        }
+        LatLngBounds bounds = builder.build();
+        mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100));
     }
 
     private void refreshMap() {
@@ -222,73 +242,57 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 .get()
                 .addOnCompleteListener(task -> {
                     if (task.isSuccessful()) {
-                        List<String> documentIds = new ArrayList<>();
+                        List<String> fileNames = new ArrayList<>();
                         for (DocumentSnapshot document : task.getResult()) {
-                            documentIds.add(document.getId());
+                            fileNames.add(document.getId());
                         }
-                        if (documentIds.isEmpty()) {
-                            Toast.makeText(this, "No farms found", Toast.LENGTH_SHORT).show();
-                        } else {
-                            showFileListDialog(documentIds);
-                        }
+
+                        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                        builder.setTitle("Select a file")
+                                .setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, fileNames), (dialog, which) -> {
+                                    String selectedFile = fileNames.get(which);
+                                    loadMarkersFromFirestore(selectedFile);
+                                })
+                                .setNegativeButton("Cancel", null)
+                                .show();
                     } else {
-                        Log.e(TAG, "Error getting documents: " + task.getException(), task.getException());
-                        Toast.makeText(this, "Error getting documents from Firestore", Toast.LENGTH_SHORT).show();
+                        Log.e(TAG, "Error getting files: " + task.getException(), task.getException());
+                        Toast.makeText(this, "Error getting files from Firestore: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
                     }
                 });
     }
 
-    private void showFileListDialog(List<String> documentIds) {
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, documentIds);
-        ListView listView = new ListView(this);
-        listView.setAdapter(adapter);
-        listView.setOnItemClickListener((parent, view, position, id) -> {
-            String selectedFileId = documentIds.get(position);
-            loadMarkersFromFirestore(selectedFileId);
-        });
-
-        new AlertDialog.Builder(this)
-                .setTitle("Select a Farm")
-                .setView(listView)
-                .setPositiveButton("Cancel", null)
-                .show();
-    }
-
-    private void loadMarkersFromFirestore(String documentId) {
+    private void loadMarkersFromFirestore(String fileName) {
         String username = getUsernameFromEmail(currentUser.getEmail()); // Extract username
         if (username == null || username.isEmpty()) {
             Toast.makeText(this, "Username extraction failed", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        db.collection("users").document(username).collection("farms").document(documentId)
+        db.collection("users").document(username).collection("farms").document(fileName)
                 .get()
                 .addOnCompleteListener(task -> {
-                    if (task.isSuccessful()) {
+                    if (task.isSuccessful() && task.getResult() != null) {
                         DocumentSnapshot document = task.getResult();
-                        if (document.exists()) {
-                            List<Map<String, Object>> points = (List<Map<String, Object>>) document.get("points");
+                        List<Map<String, Object>> points = (List<Map<String, Object>>) document.get("points");
+
+                        if (points != null) {
                             polygonPoints.clear();
-                            mMap.clear();
-                            if (points != null) {
-                                for (Map<String, Object> pointData : points) {
-                                    double lat = (double) pointData.get("latitude");
-                                    double lng = (double) pointData.get("longitude");
-                                    LatLng latLng = new LatLng(lat, lng);
-                                    polygonPoints.add(latLng);
-                                    mMap.addMarker(new MarkerOptions().position(latLng));
-                                }
-                                updatePolygon();
+                            for (Map<String, Object> point : points) {
+                                double latitude = (double) point.get("latitude");
+                                double longitude = (double) point.get("longitude");
+                                LatLng latLng = new LatLng(latitude, longitude);
+                                polygonPoints.add(latLng);
                             }
-                        } else {
-                            Toast.makeText(this, "No such document", Toast.LENGTH_SHORT).show();
+                            updatePolygon();
                         }
                     } else {
-                        Log.e(TAG, "Error getting document: " + task.getException(), task.getException());
-                        Toast.makeText(this, "Error getting document from Firestore", Toast.LENGTH_SHORT).show();
+                        Log.e(TAG, "Error loading markers: " + task.getException(), task.getException());
+                        Toast.makeText(this, "Error loading markers from Firestore: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
                     }
                 });
     }
+
 
     private String getUsernameFromEmail(String email) {
         if (email != null && email.contains("@")) {
@@ -296,7 +300,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
         return null;
     }
-
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -306,7 +309,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 updateLocationUI();
                 getDeviceLocation();
             } else {
-                Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show();
             }
         }
     }
