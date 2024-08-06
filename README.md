@@ -1,0 +1,1 @@
+A working android app that uses firestore db to store polygons created by user as a collection of markers (with latitude and longitude values), by touching the folder button, you can open a list of all current saved farms in the firestore db.
